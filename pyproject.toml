@@ -18,3 +18,6 @@ fast = ["xxhash>=3.4"]
 
 [project.scripts]
 gigaorganize = "gigaorganize.main:main"
+
+[tool.hatch.build.targets.wheel.force-include]
+"resources" = "gigaorganize/resources"
