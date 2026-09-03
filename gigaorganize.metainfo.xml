@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.gigaorganize.app</id>
+  <name>GigaOrganize</name>
+  <summary>Linux system organizer — disk analysis, duplicates, cleanup, file sorting</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      GigaOrganize helps you manage your Linux system by analyzing disk usage,
+      finding duplicate files, cleaning caches, organizing downloads, and
+      viewing system information — all in a modern GTK4/libadwaita interface.
+    </p>
+  </description>
+  <launchable type="desktop-id">gigaorganize.desktop</launchable>
+  <developer id="com.gigaorganize">
+    <name>Gigatone</name>
+  </developer>
+  <releases>
+    <release version="1.0.0" date="2026-09-03">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+</component>

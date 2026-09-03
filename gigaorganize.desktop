@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GigaOrganize
+Comment=System organizer — disk usage, duplicates, cleanup, file sorting
+Exec=python3 /var/home/Gigatone/gigaorganize/main.py %F
+Icon=gigaorganize
+Terminal=false
+Categories=Utility;System;FileTools;
+Keywords=disk;cleanup;duplicate;organize;system;
+StartupNotify=true

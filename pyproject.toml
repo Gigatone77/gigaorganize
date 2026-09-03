@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gigaorganize"
+version = "1.0.0"
+description = "Linux system organizer — disk usage, duplicates, cleanup, file sorting"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    "PyGObject>=3.48",
+    "send2trash>=1.8",
+]
+
+[project.optional-dependencies]
+fast = ["xxhash>=3.4"]
+
+[project.scripts]
+gigaorganize = "gigaorganize.main:main"

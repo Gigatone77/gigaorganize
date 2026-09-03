@@ -1,0 +1,50 @@
+/* GigaOrganize custom styles */
+
+.compact-sidebar row {
+    padding: 2px 4px;
+    min-height: 28px;
+}
+
+.compact-sidebar row label {
+    font-size: 0.85em;
+}
+
+.treemap-tooltip {
+    padding: 6px 10px;
+    border-radius: 8px;
+    background-color: alpha(@window_bg_color, 0.95);
+    border: 1px solid @borders;
+}
+
+.size-bar {
+    min-height: 6px;
+    border-radius: 3px;
+    background-color: @accent_bg_color;
+}
+
+.category-card {
+    border-radius: 12px;
+    padding: 12px;
+    background-color: @card_bg_color;
+    border: 1px solid @borders;
+}
+
+.badge-active {
+    color: @success_color;
+    font-weight: bold;
+}
+
+.badge-inactive {
+    color: @dim_label_color;
+}
+
+.badge-failed {
+    color: @error_color;
+    font-weight: bold;
+}
+
+.scan-overlay {
+    background-color: alpha(@window_bg_color, 0.8);
+    border-radius: 12px;
+    padding: 24px;
+}
