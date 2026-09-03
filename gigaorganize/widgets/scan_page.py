@@ -20,6 +20,8 @@ class ScanPage(Adw.NavigationPage):
         self.set_child(self._outer)
 
         header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+        header.set_show_start_title_buttons(False)
         self._outer.append(header)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)

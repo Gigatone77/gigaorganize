@@ -28,6 +28,13 @@ def _count_files(root: Path, *, skip_hidden: bool = True, cancellable=None) -> i
     return count
 
 
+def _safe_full_hash(fp: Path) -> str | None:
+    try:
+        return full_hash(fp)
+    except (OSError, PermissionError, ValueError):
+        return None
+
+
 def scan_duplicates(root: Path, *, progress=None, cancellable=None,
                     min_size: int = MIN_DUPLICATE_SIZE,
                     skip_hidden: bool = True) -> DuplicateScanResult:
@@ -82,29 +89,41 @@ def scan_duplicates(root: Path, *, progress=None, cancellable=None,
         })
 
     groups: list[DuplicateGroup] = []
-    hash_idx = 0
-    for (sz, _), candidates in size_groups.items():
-        if len(candidates) < 2:
-            continue
+
+    def _hash_all(files, sz, done_counter):
+        import concurrent.futures
         full_groups: dict[str, list[Path]] = defaultdict(list)
-        for fp in candidates:
-            if cancellable and cancellable.is_cancelled():
-                return DuplicateScanResult(groups=[], total_duplicates=0,
-                                           total_wasted_bytes=0, scan_time_seconds=0,
-                                           files_scanned=file_count)
-            try:
-                h = full_hash(fp)
-                full_groups[h].append(fp)
-                hash_idx += 1
-                if progress and hash_idx % 10 == 0:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            futures = {ex.submit(_safe_full_hash, fp): fp for fp in files}
+            for fut in concurrent.futures.as_completed(futures):
+                if cancellable and cancellable.is_cancelled():
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    return ("__cancelled__", done_counter)
+                try:
+                    h = fut.result()
+                except (OSError, PermissionError):
+                    continue
+                if h is not None:
+                    full_groups[h].append(futures[fut])
+                done_counter[0] += 1
+                if progress and done_counter[0] % 10 == 0:
                     progress({
                         "phase": "comparing",
-                        "current": hash_idx,
+                        "current": done_counter[0],
                         "total": candidate_count,
-                        "path": f"Verifying: {fp.name}",
+                        "path": f"Verifying: {futures[fut].name}",
                     })
-            except (OSError, PermissionError):
-                continue
+        return (full_groups, done_counter)
+
+    done_counter = [0]
+    for (sz, _), candidates in size_groups.items():
+        if len(candidates) < 2 or (cancellable and cancellable.is_cancelled()):
+            continue
+        full_groups, done_counter = _hash_all(candidates, sz, done_counter)
+        if full_groups == "__cancelled__":
+            return DuplicateScanResult(groups=[], total_duplicates=0,
+                                       total_wasted_bytes=0, scan_time_seconds=0,
+                                       files_scanned=file_count)
         for h, files in full_groups.items():
             if len(files) >= 2:
                 groups.append(DuplicateGroup(
@@ -135,6 +154,7 @@ class DuplicatesPage(ScanPage):
         self._current_path = HOME
         self._result: DuplicateScanResult | None = None
         self._group_widgets: list[tuple[DuplicateGroup, Gtk.Box]] = []
+        self._render_gen = 0
 
         path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self._outer.append(path_box)
@@ -200,6 +220,7 @@ class DuplicatesPage(ScanPage):
             pass
 
     def _on_start_scan(self, *args):
+        self._render_gen += 1
         self._set_scanning(True)
         self._summary_label.set_text("Preparing duplicate scan...")
         self._progress_bar.set_show_text(True)
@@ -268,46 +289,68 @@ class DuplicatesPage(ScanPage):
         self._trash_button.set_visible(True)
         self._select_all_button.set_visible(True)
 
-        for group in result.groups:
-            expander = Adw.ExpanderRow()
-            expander.set_title(f"{group.count} copies \u2014 {format_size(group.file_size)} each")
-            expander.set_subtitle(f"Wasted: {format_size(group.total_wasted)}")
+        self._render_chunk(iter(result.groups), render_gen=self._render_gen, chunk_size=50)
 
-            file_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            checkboxes: list[Gtk.CheckButton] = []
+    def _render_chunk(self, groups_iter, render_gen, chunk_size=50):
+        if render_gen != self._render_gen:
+            return False
+        rendered = 0
+        try:
+            while rendered < chunk_size:
+                group = next(groups_iter)
+                self._append_group(group)
+                rendered += 1
+        except StopIteration:
+            groups_iter = None
 
-            for i, fp in enumerate(group.files):
-                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                row.set_margin_top(2)
-                row.set_margin_bottom(2)
+        if groups_iter is not None:
+            GLib.idle_add(self._render_chunk, groups_iter, self._render_gen, chunk_size)
+            return True
+        return False
 
-                cb = Gtk.CheckButton()
-                cb.set_active(i > 0)
-                checkboxes.append(cb)
-                row.append(cb)
+    def _append_group(self, group):
+        expander = Gtk.Expander(
+            label=f"{group.count} copies \u2014 {format_size(group.file_size)} each  "
+                  f"[Wasted: {format_size(group.total_wasted)}]"
+        )
+        expander.set_margin_top(4)
+        expander.set_margin_bottom(4)
 
-                file_label = Gtk.Label(label=str(fp), xalign=0)
-                file_label.set_ellipsize(3)
-                file_label.set_hexpand(True)
-                row.append(file_label)
+        file_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        checkboxes: list[Gtk.CheckButton] = []
 
-                open_btn = Gtk.Button(label="Open")
-                open_btn.add_css_class("flat")
-                open_btn.set_size_request(60, -1)
-                open_btn.connect("clicked", lambda b, p=fp: open_file(p))
-                row.append(open_btn)
+        for i, fp in enumerate(group.files):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            row.set_margin_top(2)
+            row.set_margin_bottom(2)
 
-                reveal_btn = Gtk.Button(label="Folder")
-                reveal_btn.add_css_class("flat")
-                reveal_btn.set_size_request(60, -1)
-                reveal_btn.connect("clicked", lambda b, p=fp: reveal_in_manager(p))
-                row.append(reveal_btn)
+            cb = Gtk.CheckButton()
+            cb.set_active(i > 0)
+            checkboxes.append(cb)
+            row.append(cb)
 
-                file_box.append(row)
+            file_label = Gtk.Label(label=str(fp), xalign=0)
+            file_label.set_ellipsize(3)
+            file_label.set_hexpand(True)
+            row.append(file_label)
 
-            expander.add_row(file_box)
-            self._groups_list.append(expander)
-            self._group_widgets.append((group, expander, checkboxes))
+            open_btn = Gtk.Button(label="Open")
+            open_btn.add_css_class("flat")
+            open_btn.set_size_request(60, -1)
+            open_btn.connect("clicked", lambda b, p=fp: open_file(p))
+            row.append(open_btn)
+
+            reveal_btn = Gtk.Button(label="Folder")
+            reveal_btn.add_css_class("flat")
+            reveal_btn.set_size_request(60, -1)
+            reveal_btn.connect("clicked", lambda b, p=fp: reveal_in_manager(p))
+            row.append(reveal_btn)
+
+            file_box.append(row)
+
+        expander.set_child(file_box)
+        self._groups_list.append(expander)
+        self._group_widgets.append((group, expander, checkboxes))
 
     def _on_scan_error(self, error: Exception):
         self._set_scanning(False)
